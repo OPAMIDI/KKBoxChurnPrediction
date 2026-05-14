@@ -1,1 +1,121 @@
+KKBox Music Streaming — Churn Prediction
 
+Predicting subscriber churn using machine learning on 21.5 million transaction records
+MSc IT for Business Data Analytics — Capstone Project
+
+
+Overview
+This project builds and evaluates a machine learning pipeline to predict whether a KKBox music streaming subscriber will churn — defined as failing to renew their membership within 30 days of expiry.
+Five models are trained in order of complexity and compared across three metrics:
+ModelROC-AUCLog LossPR-AUCDummy Classifier0.49814.29900.0637Logistic Regression0.80360.50260.3401Random Forest0.87510.41310.4595XGBoost0.87910.40210.4824LightGBM (Optuna)0.87680.21510.4571
+LightGBM is the recommended production model — it achieves near-identical ranking performance to XGBoost but with 47% better probability calibration (Log Loss), which matters when churn scores are used to allocate retention budgets across risk tiers.
+
+Dataset
+Source: WSDM — KKBox's Churn Prediction Challenge
+FileRowsDescriptiontrain.csv992,929User IDs and churn labelsmembers_v3.csv6.7MDemographic profilestransactions.csv21.5MFull payment history
+
+You need a Kaggle account to download the data. See setup instructions below.
+
+
+Project Structure
+kkbox-churn-prediction/
+│
+├── kkbox_churn.py          # Main pipeline script 
+├── README.md               # This file
+│
+├── results/
+│   ├── eda_overview.png        # 6-panel EDA figure
+│   ├── roc_curves.png          # ROC curves for all 5 models
+│   ├── confusion_matrix.png    # Confusion matrix at optimal threshold
+│   ├── shap_summary.png        # SHAP feature importance plot
+│   └── model_comparison.csv    # Metrics table
+│
+└── models/
+    ├── lr.pkl              # Logistic Regression
+    ├── rf.pkl              # Random Forest
+    ├── xgb.pkl             # XGBoost
+    └── lgbm.pkl            # LightGBM (final model)
+
+Key Methodological Decision — Temporal Leakage Fix
+The churn label covers February–March 2017.
+Without a cutoff, transaction features include is_cancel and is_auto_renew signals from the same window — directly encoding the target.
+Result without cutoff: ROC-AUC > 0.97 (inflated, meaningless)
+Result with cutoff at 2017-01-31: ROC-AUC ~0.879 (realistic, defensible)
+pythonCUTOFF_DATE = pd.Timestamp('2017-01-31')
+transactions = transactions[transactions['transaction_date'] <= CUTOFF_DATE]
+This is the single most important line in the project.
+
+Features Engineered
+From transactions (behavioural)
+FeatureDescriptionauto_renew_rateProportion of transactions with auto-renewal ONcancel_rateProportion of transactions with manual cancellationtrans_countTotal number of transactionstenure_daysDays between first and last transactionrecency_daysDays since last transaction before cutofftotal_paidTotal amount paidavg_paidAverage payment per transactionlast_paidMost recent payment amountavg_plan_daysAverage plan durationlast_plan_daysMost recent plan duration
+From members (demographic)
+FeatureDescriptionmember_ageAge clipped to 1–100member_age_missingFlag for invalid age valuesmember_reg_daysDays since registrationmember_age_binOrdinal age bracket (0=teen … 5=60+)gender_encmale=1, female=0, unknown=-1cityCity coderegistered_viaRegistration platform code
+
+How to Run
+Step 1 — Open in Google Colab
+Upload kkbox_churn.py to Colab or copy the code into a notebook.
+Step 2 — Mount Google Drive
+pythonfrom google.colab import drive
+drive.mount('/content/drive')
+Step 3 — Set up Kaggle credentials
+Upload your kaggle.json file (from kaggle.com → Settings → API):
+pythonfrom google.colab import files
+files.upload()   # select kaggle.json
+Step 4 — Run the script
+The script will:
+
+Download the competition files from Kaggle automatically
+Apply the leakage fix (transaction cutoff)
+Engineer all features
+Save a features.parquet file to Drive (skips steps 1–3 on future runs)
+Train all 5 models
+Generate all evaluation plots and save them to Drive
+
+Step 5 — Subsequent sessions
+On your next session the script detects features.parquet on Drive and loads it in ~5 seconds, skipping the entire data preparation pipeline.
+
+Dependencies
+pandas
+numpy
+matplotlib
+seaborn
+scikit-learn
+xgboost
+lightgbm
+shap
+optuna
+joblib
+Install all at once:
+bashpip install lightgbm xgboost shap optuna --quiet
+
+pandas, numpy, matplotlib, seaborn, scikit-learn, and joblib are pre-installed in Google Colab.
+
+
+Results
+SHAP Feature Importance
+Top 3 drivers of churn (by mean absolute SHAP value):
+
+auto_renew_rate — highest importance by far; disabling auto-renewal is the strongest churn signal
+recency_days — users inactive before the cutoff are at elevated risk
+cancel_rate — history of manual cancellations predicts future churn
+
+Demographic features (age, city, gender) contribute but are substantially less important than behavioural features.
+Business Recommendations
+PriorityActionTarget Segment1Auto-renewal re-enrolment campaignUsers with auto_renew_rate < 0.52Proactive retention outreachUsers with cancel_rate > 0.4 in last 90 days3Structured onboarding programmeNew subscribers with tenure_days < 90
+
+Reproducibility
+
+Random seed 42 used throughout all splits, models, and Optuna trials
+All train/val/test splits are stratified to preserve the 6.4% churn rate
+Medians for imputation are computed from the training set only
+The features.parquet file on Drive guarantees identical feature inputs across sessions
+
+
+Author
+Omkar Pamidi
+MSc IT for Business Data Analytics
+International Business School Budapest
+OPAMIDI@ibs-b.hu
+
+Acknowledgements
+Dataset provided by KKBox via the WSDM 2018 Kaggle Competition.
